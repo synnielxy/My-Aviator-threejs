@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 //COLORS
 var Colors = {
@@ -20,9 +19,8 @@ var game;
 var deltaTime = 0;
 var newTime = new Date().getTime();
 var oldTime = new Date().getTime();
-var ennemiesPool = [];
+var enemiesPool = [];
 var particlesPool = [];
-var particlesInUse = [];
 
 function resetGame() {
   game = {
@@ -78,15 +76,15 @@ function resetGame() {
     coinLastSpawn: 0,
     distanceForCoinsSpawn: 100,
 
-    ennemyDistanceTolerance: 10,
-    ennemyValue: 10,
-    ennemiesSpeed: 0.6,
-    ennemyLastSpawn: 0,
-    distanceForEnnemiesSpawn: 50,
+    enemyDistanceTolerance: 10,
+    enemyValue: 10,
+    enemiesSpeed: 0.6,
+    enemyLastSpawn: 0,
+    distanceForEnemiesSpawn: 50,
 
     status: "playing",
   };
-  // fieldLevel.innerHTML = Math.floor(game.level);
+  fieldLevel.innerHTML = Math.floor(game.level);
 }
 
 //THREEJS RELATED VARIABLES
@@ -139,7 +137,7 @@ function createScene() {
   // Set the position of the camera
   camera.position.x = 0;
   camera.position.z = 200;
-  camera.position.y = 100;
+  camera.position.y = game.planeDefaultHeight;
 
   // Create the renderer
   renderer = new THREE.WebGLRenderer({
@@ -167,6 +165,14 @@ function createScene() {
   // Listen to the screen: if the user resizes it
   // we have to update the camera and the renderer size
   window.addEventListener("resize", handleWindowResize, false);
+  /*
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.minPolarAngle = -Math.PI / 2;
+  controls.maxPolarAngle = Math.PI ;
+
+  //controls.noZoom = true;
+  //controls.noPan = true;
+  //*/
 }
 
 // MOUSE AND SCREEN EVENTS
@@ -186,6 +192,26 @@ function handleMouseMove(event) {
   mousePos = { x: tx, y: ty };
 }
 
+function handleTouchMove(event) {
+  event.preventDefault();
+  var tx = -1 + (event.touches[0].pageX / WIDTH) * 2;
+  var ty = 1 - (event.touches[0].pageY / HEIGHT) * 2;
+  mousePos = { x: tx, y: ty };
+}
+
+function handleMouseUp(event) {
+  if (game.status == "waitingReplay") {
+    resetGame();
+    hideReplay();
+  }
+}
+
+function handleTouchEnd(event) {
+  if (game.status == "waitingReplay") {
+    resetGame();
+    hideReplay();
+  }
+}
 // LIGHTS
 
 var ambientLight, hemisphereLight, shadowLight;
@@ -219,17 +245,13 @@ function createLights() {
   shadowLight.shadow.mapSize.width = 2048;
   shadowLight.shadow.mapSize.height = 2048;
 
-  ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // Added ambient light
+  var ch = new THREE.CameraHelper(shadowLight.shadow.camera);
+  ambientLight = new THREE.AmbientLight(0xdc8874, 0.5);
   // to activate the lights, just add them to the scene
   scene.add(hemisphereLight);
   scene.add(shadowLight);
   scene.add(ambientLight); // Added ambient light to the scene
 }
-
-/**
- * Models
- */
-const gltfLoader = new GLTFLoader();
 
 var AirPlane = function () {
   this.mesh = new THREE.Object3D();
@@ -306,45 +328,6 @@ var AirPlane = function () {
   this.mesh.add(this.propeller);
 };
 
-let airplaneGroup, helix, pilot;
-
-function createPlane() {
-  // airplane = new AirPlane();
-  // airplane.mesh.scale.set(0.25, 0.25, 0.25);
-  // airplane.mesh.position.y = 100;
-  // scene.add(airplane.mesh);
-
-  gltfLoader.load("/models/airplane/model.glb", (glb) => {
-    airplaneGroup = new THREE.Group();
-
-    // 获取模型
-    const airplane = glb.scene.children[0];
-    helix = glb.scene.children[1];
-
-    // 缩放模型，例如放大20倍
-    const scale = 20;
-    airplane.scale.set(scale, scale, scale);
-    helix.scale.set(scale, scale, scale);
-
-    // 调整helix相对于airplane的位置
-    helix.position.set(1.09 * scale, 0.23 * scale, 0);
-
-    // 将airplane和helix添加到组中
-    airplaneGroup.add(airplane);
-    airplaneGroup.add(helix);
-
-    pilot = new Pilot();
-    pilot.mesh.position.set(-5, 5, 0); // 调整Pilot的位置
-    pilot.mesh.scale.set(0.35, 0.35, 0.35);
-    pilot.mesh.rotation.set(0, 0, 0.35);
-    airplaneGroup.add(pilot.mesh);
-
-    // 将组添加到场景中
-    scene.add(airplaneGroup);
-    airplaneGroup.scale.set(2, 2, 2);
-  });
-}
-
 var Cloud = function () {
   // Create an empty container that will hold the different parts of the cloud
   this.mesh = new THREE.Object3D();
@@ -383,6 +366,7 @@ var Cloud = function () {
     this.mesh.add(m);
   }
 };
+
 Cloud.prototype.rotate = function () {
   var l = this.mesh.children.length;
   for (var i = 0; i < l; i++) {
@@ -391,6 +375,7 @@ Cloud.prototype.rotate = function () {
     m.rotation.y += Math.random() * 0.002 * (i + 1);
   }
 };
+
 var Sky = function () {
   this.mesh = new THREE.Object3D();
   this.nClouds = 20;
@@ -429,6 +414,7 @@ var Sky = function () {
     this.mesh.add(c.mesh);
   }
 };
+
 Sky.prototype.moveClouds = function () {
   for (var i = 0; i < this.nClouds; i++) {
     var c = this.clouds[i];
@@ -436,13 +422,6 @@ Sky.prototype.moveClouds = function () {
   }
   this.mesh.rotation.z += game.speed * deltaTime;
 };
-var sky;
-
-function createSky() {
-  sky = new Sky();
-  sky.mesh.position.y = -game.seaRadius;
-  scene.add(sky.mesh);
-}
 
 var Sea = function () {
   // create the geometry (shape) of the cylinder;
@@ -521,8 +500,403 @@ Sea.prototype.moveWaves = function () {
   sea.mesh.rotation.z += 0.005;
 };
 
-var sea;
+class Pilot {
+  constructor() {
+    this.mesh = new THREE.Object3D();
+    this.mesh.name = "pilot";
 
+    // angleHairs is a property used to animate the hair later
+    this.angleHairs = 0;
+
+    // Body of the pilot
+    const bodyGeom = new THREE.BoxGeometry(15, 15, 15);
+    const bodyMat = new THREE.MeshPhongMaterial({
+      color: Colors.brown,
+      flatShading: true,
+    });
+    const body = new THREE.Mesh(bodyGeom, bodyMat);
+    body.position.set(2, -12, 0);
+    this.mesh.add(body);
+
+    // Face of the pilot
+    const faceGeom = new THREE.BoxGeometry(10, 10, 10);
+    const faceMat = new THREE.MeshLambertMaterial({ color: Colors.pink });
+    const face = new THREE.Mesh(faceGeom, faceMat);
+    this.mesh.add(face);
+
+    // Hair element
+    const hairGeom = new THREE.BoxGeometry(4, 4, 4);
+    const hairMat = new THREE.MeshLambertMaterial({ color: Colors.brown });
+    const hair = new THREE.Mesh(hairGeom, hairMat);
+    // Align the shape of the hair to its bottom boundary, that will make it easier to scale.
+    hair.geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 2, 0));
+
+    // create a container for the hair
+    const hairs = new THREE.Object3D();
+
+    // create a container for the hairs at the top
+    // of the head (the ones that will be animated)
+    this.hairsTop = new THREE.Object3D();
+
+    // create the hairs at the top of the head
+    // and position them on a 3 x 4 grid
+    for (let i = 0; i < 12; i++) {
+      const h = hair.clone();
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const startPosZ = -4;
+      const startPosX = -4;
+      h.position.set(startPosX + row * 4, 0, startPosZ + col * 4);
+      this.hairsTop.add(h);
+    }
+    hairs.add(this.hairsTop);
+
+    // create the hairs at the side of the face
+    const hairSideGeom = new THREE.BoxGeometry(12, 4, 2);
+    hairSideGeom.applyMatrix4(new THREE.Matrix4().makeTranslation(-6, 0, 0));
+    const hairSideR = new THREE.Mesh(hairSideGeom, hairMat);
+    const hairSideL = hairSideR.clone();
+    hairSideR.position.set(8, -2, 6);
+    hairSideL.position.set(8, -2, -6);
+    hairs.add(hairSideR);
+    hairs.add(hairSideL);
+
+    // create the hairs at the back of the head
+    const hairBackGeom = new THREE.BoxGeometry(2, 8, 10);
+    const hairBack = new THREE.Mesh(hairBackGeom, hairMat);
+    hairBack.position.set(-1, -4, 0);
+    hairs.add(hairBack);
+    hairs.position.set(-5, 5, 0);
+
+    this.mesh.add(hairs);
+
+    const glassGeom = new THREE.BoxGeometry(5, 5, 5);
+    const glassMat = new THREE.MeshLambertMaterial({ color: Colors.brown });
+    const glassR = new THREE.Mesh(glassGeom, glassMat);
+    glassR.position.set(6, 0, 3);
+    const glassL = glassR.clone();
+    glassL.position.z = -glassR.position.z;
+
+    const glassAGeom = new THREE.BoxGeometry(11, 1, 11);
+    const glassA = new THREE.Mesh(glassAGeom, glassMat);
+    this.mesh.add(glassR);
+    this.mesh.add(glassL);
+    this.mesh.add(glassA);
+
+    const earGeom = new THREE.BoxGeometry(2, 3, 2);
+    const earL = new THREE.Mesh(earGeom, faceMat);
+    earL.position.set(0, 0, -6);
+    const earR = earL.clone();
+    earR.position.set(0, 0, 6);
+    this.mesh.add(earL);
+    this.mesh.add(earR);
+  }
+
+  updateHairs() {
+    // get the hair
+    const hairs = this.hairsTop.children;
+
+    // update them according to the angle angleHairs
+    const l = hairs.length;
+    for (let i = 0; i < l; i++) {
+      const h = hairs[i];
+      // each hair element will scale on cyclical basis between 75% and 100% of its original size
+      h.scale.y = 0.75 + Math.cos(this.angleHairs + i / 3) * 0.25;
+    }
+    // increment the angle for the next frame
+    this.angleHairs += 0.16;
+  }
+}
+
+class Enemy {
+  constructor() {
+    var geom = new THREE.TetrahedronGeometry(8, 2);
+    var mat = new THREE.MeshPhongMaterial({
+      color: Colors.red,
+      shininess: 0,
+      specular: 0xffffff,
+      flatShading: true,
+    });
+    this.mesh = new THREE.Mesh(geom, mat);
+    this.mesh.castShadow = true;
+    this.angle = 0;
+    this.dist = 0;
+  }
+}
+
+class EnemiesHolder {
+  constructor() {
+    this.mesh = new THREE.Object3D();
+    this.enemiesInUse = [];
+  }
+  spawnEnemies() {
+    let nEnemies = game.level;
+    for (let i = 0; i < nEnemies; i++) {
+      var enemy;
+      if (enemiesPool.length) {
+        enemy = enemiesPool.pop();
+      } else {
+        enemy = new Enemy();
+      }
+
+      enemy.angle = -(i * 0.1);
+      enemy.distance =
+        game.seaRadius +
+        game.planeDefaultHeight +
+        (-1 + Math.random() * 2) * (game.planeAmpHeight - 20);
+      enemy.mesh.position.y =
+        -game.seaRadius + Math.sin(enemy.angle) * enemy.distance;
+      enemy.mesh.position.x = Math.cos(enemy.angle) * enemy.distance;
+
+      this.mesh.add(enemy.mesh);
+      this.enemiesInUse.push(enemy);
+    }
+  }
+  rotateEnemies() {
+    for (var i = 0; i < this.enemiesInUse.length; i++) {
+      var enemy = this.enemiesInUse[i];
+      enemy.angle += game.speed * deltaTime * game.enemiesSpeed;
+
+      if (enemy.angle > Math.PI * 2) enemy.angle -= Math.PI * 2;
+
+      enemy.mesh.position.y =
+        -game.seaRadius + Math.sin(enemy.angle) * enemy.distance;
+      enemy.mesh.position.x = Math.cos(enemy.angle) * enemy.distance;
+      enemy.mesh.rotation.z += Math.random() * 0.1;
+      enemy.mesh.rotation.y += Math.random() * 0.1;
+
+      // var globalenemyPosition = enemy.mesh.localToWorld(new THREE.Vector3());
+      if (!airplaneGroup) return;
+      var diffPos = airplaneGroup.position
+        .clone()
+        .sub(enemy.mesh.position.clone());
+      var d = diffPos.length();
+      if (d < game.enemyDistanceTolerance) {
+        particlesHolder.spawnParticles(
+          enemy.mesh.position.clone(),
+          15,
+          Colors.red,
+          3
+        );
+
+        enemiesPool.unshift(this.enemiesInUse.splice(i, 1)[0]);
+        this.mesh.remove(enemy.mesh);
+        game.planeCollisionSpeedX = (100 * diffPos.x) / d;
+        game.planeCollisionSpeedY = (100 * diffPos.y) / d;
+        ambientLight.intensity = 2;
+
+        removeEnergy();
+        i--;
+      } else if (enemy.angle > Math.PI) {
+        enemiesPool.unshift(this.enemiesInUse.splice(i, 1)[0]);
+        this.mesh.remove(enemy.mesh);
+        i--;
+      }
+    }
+  }
+}
+
+class Particle {
+  constructor() {
+    var geom = new THREE.TetrahedronGeometry(3, 0);
+    var mat = new THREE.MeshPhongMaterial({
+      color: 0x009999,
+      shininess: 0,
+      specular: 0xffffff,
+      flatShading: true,
+    });
+    this.mesh = new THREE.Mesh(geom, mat);
+  }
+  explode(pos, color, scale) {
+    var _this = this;
+    var _p = this.mesh.parent;
+    this.mesh.material.color = new THREE.Color(color);
+    this.mesh.material.needsUpdate = true;
+    this.mesh.scale.set(scale, scale, scale);
+    var targetX = pos.x + (-1 + Math.random() * 2) * 50;
+    var targetY = pos.y + (-1 + Math.random() * 2) * 50;
+    var speed = 0.6 + Math.random() * 0.2;
+    TweenMax.to(this.mesh.rotation, speed, {
+      x: Math.random() * 12,
+      y: Math.random() * 12,
+    });
+    TweenMax.to(this.mesh.scale, speed, { x: 0.1, y: 0.1, z: 0.1 });
+    TweenMax.to(this.mesh.position, speed, {
+      x: targetX,
+      y: targetY,
+      delay: Math.random() * 0.1,
+      ease: Power2.easeOut,
+      onComplete: function () {
+        if (_p) _p.remove(_this.mesh);
+        _this.mesh.scale.set(1, 1, 1);
+        particlesPool.unshift(_this);
+      },
+    });
+  }
+}
+
+class ParticlesHolder {
+  constructor() {
+    this.mesh = new THREE.Object3D();
+    this.particlesInUse = [];
+  }
+  spawnParticles(pos, density, color, scale) {
+    var nPArticles = density;
+    for (var i = 0; i < nPArticles; i++) {
+      var particle;
+      if (particlesPool.length) {
+        particle = particlesPool.pop();
+      } else {
+        particle = new Particle();
+      }
+      this.mesh.add(particle.mesh);
+      particle.mesh.visible = true;
+      var _this = this;
+      particle.mesh.position.y = pos.y;
+      particle.mesh.position.x = pos.x;
+      particle.explode(pos, color, scale);
+    }
+  }
+}
+
+class Coin {
+  constructor() {
+    var geom = new THREE.TetrahedronGeometry(5, 0);
+    var mat = new THREE.MeshPhongMaterial({
+      color: 0x009999,
+      shininess: 0,
+      specular: 0xffffff,
+      flatShading: true,
+    });
+    this.mesh = new THREE.Mesh(geom, mat);
+    this.mesh.castShadow = true;
+    this.angle = 0;
+    this.dist = 0;
+  }
+}
+
+class CoinsHolder {
+  constructor(nCoins) {
+    this.mesh = new THREE.Object3D();
+    this.coinsInUse = [];
+    this.coinsPool = [];
+    for (var i = 0; i < nCoins; i++) {
+      var coin = new Coin();
+      this.coinsPool.push(coin);
+    }
+  }
+
+  spawnCoins() {
+    var nCoins = 1 + Math.floor(Math.random() * 10);
+    var d =
+      game.seaRadius +
+      game.planeDefaultHeight +
+      (-1 + Math.random() * 2) * (game.planeAmpHeight - 20);
+    var amplitude = 10 + Math.round(Math.random() * 10);
+    for (var i = 0; i < nCoins; i++) {
+      var coin;
+      if (this.coinsPool.length) {
+        coin = this.coinsPool.pop();
+      } else {
+        coin = new Coin();
+      }
+      this.mesh.add(coin.mesh);
+      this.coinsInUse.push(coin);
+      coin.angle = -(i * 0.02);
+      coin.distance = d + Math.cos(i * 0.5) * amplitude;
+      coin.mesh.position.y =
+        -game.seaRadius + Math.sin(coin.angle) * coin.distance;
+      coin.mesh.position.x = Math.cos(coin.angle) * coin.distance;
+    }
+  }
+
+  rotateCoins() {
+    for (var i = 0; i < this.coinsInUse.length; i++) {
+      var coin = this.coinsInUse[i];
+      if (coin.exploding) continue;
+      coin.angle += game.speed * deltaTime * game.coinsSpeed;
+      if (coin.angle > Math.PI * 2) coin.angle -= Math.PI * 2;
+      coin.mesh.position.y =
+        -game.seaRadius + Math.sin(coin.angle) * coin.distance;
+      coin.mesh.position.x = Math.cos(coin.angle) * coin.distance;
+      coin.mesh.rotation.z += Math.random() * 0.1;
+      coin.mesh.rotation.y += Math.random() * 0.1;
+
+      //var globalCoinPosition =  coin.mesh.localToWorld(new THREE.Vector3());
+      if (!airplaneGroup) return;
+      var diffPos = airplaneGroup.position
+        .clone()
+        .sub(coin.mesh.position.clone());
+      var d = diffPos.length();
+      if (d < game.coinDistanceTolerance) {
+        this.coinsPool.unshift(this.coinsInUse.splice(i, 1)[0]);
+        this.mesh.remove(coin.mesh);
+        particlesHolder.spawnParticles(
+          coin.mesh.position.clone(),
+          5,
+          0x009999,
+          0.8
+        );
+        addEnergy();
+        i--;
+      } else if (coin.angle > Math.PI) {
+        this.coinsPool.unshift(this.coinsInUse.splice(i, 1)[0]);
+        this.mesh.remove(coin.mesh);
+        i--;
+      }
+    }
+  }
+}
+/**
+ * Models
+ */
+const gltfLoader = new GLTFLoader();
+
+var sea;
+var sky;
+let airplaneGroup, helix, pilot;
+var enemiesHolder, coinsHolder, particlesHolder;
+
+function createPlane() {
+  // airplane = new AirPlane();
+  // airplaneGroup.scale.set(0.25, 0.25, 0.25);
+  // airplaneGroup.position.y = 100;
+  // scene.add(airplaneGroup);
+
+  gltfLoader.load("/models/airplane/model.glb", (glb) => {
+    airplaneGroup = new THREE.Group();
+
+    // 获取模型
+    const airplane = glb.scene.children[0];
+    helix = glb.scene.children[1];
+
+    // 缩放模型，例如放大20倍
+    const scale = 20;
+    airplane.scale.set(scale, scale, scale);
+    helix.scale.set(scale, scale, scale);
+
+    // 调整helix相对于airplane的位置
+    helix.position.set(1.09 * scale, 0.23 * scale, 0);
+
+    // 将airplane和helix添加到组中
+    airplaneGroup.add(airplane);
+    airplaneGroup.add(helix);
+
+    pilot = new Pilot();
+    pilot.mesh.position.set(-5, 5, 0); // 调整Pilot的位置
+    pilot.mesh.scale.set(0.35, 0.35, 0.35);
+    pilot.mesh.rotation.set(0, 0, 0.35);
+    airplaneGroup.add(pilot.mesh);
+
+    // 将组添加到场景中
+    scene.add(airplaneGroup);
+  });
+}
+function createSky() {
+  sky = new Sky();
+  sky.mesh.position.y = -game.seaRadius;
+  scene.add(sky.mesh);
+}
 function createSea() {
   sea = new Sea();
 
@@ -532,131 +906,214 @@ function createSea() {
   // add the mesh of the sea to the scene
   scene.add(sea.mesh);
 }
-
-var Pilot = function () {
-  this.mesh = new THREE.Object3D();
-  this.mesh.name = "pilot";
-
-  // angleHairs is a property used to animate the hair later
-  this.angleHairs = 0;
-
-  // Body of the pilot
-  var bodyGeom = new THREE.BoxGeometry(15, 15, 15);
-  var bodyMat = new THREE.MeshPhongMaterial({
-    color: Colors.brown,
-    flatShading: true,
-  });
-  var body = new THREE.Mesh(bodyGeom, bodyMat);
-  body.position.set(2, -12, 0);
-  this.mesh.add(body);
-
-  // Face of the pilot
-  var faceGeom = new THREE.BoxGeometry(10, 10, 10);
-  var faceMat = new THREE.MeshLambertMaterial({ color: Colors.pink });
-  var face = new THREE.Mesh(faceGeom, faceMat);
-  this.mesh.add(face);
-
-  // Hair element
-  var hairGeom = new THREE.BoxGeometry(4, 4, 4);
-  var hairMat = new THREE.MeshLambertMaterial({ color: Colors.brown });
-  var hair = new THREE.Mesh(hairGeom, hairMat);
-  // Align the shape of the hair to its bottom boundary, that will make it easier to scale.
-  hair.geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 2, 0));
-
-  // create a container for the hair
-  var hairs = new THREE.Object3D();
-
-  // create a container for the hairs at the top
-  // of the head (the ones that will be animated)
-  this.hairsTop = new THREE.Object3D();
-
-  // create the hairs at the top of the head
-  // and position them on a 3 x 4 grid
-  for (var i = 0; i < 12; i++) {
-    var h = hair.clone();
-    var col = i % 3;
-    var row = Math.floor(i / 3);
-    var startPosZ = -4;
-    var startPosX = -4;
-    h.position.set(startPosX + row * 4, 0, startPosZ + col * 4);
-    this.hairsTop.add(h);
+function createCoins() {
+  coinsHolder = new CoinsHolder(20);
+  scene.add(coinsHolder.mesh);
+}
+function createEnemies() {
+  for (var i = 0; i < 10; i++) {
+    var enemy = new Enemy();
+    enemiesPool.push(enemy);
   }
-  hairs.add(this.hairsTop);
-
-  // create the hairs at the side of the face
-  var hairSideGeom = new THREE.BoxGeometry(12, 4, 2);
-  hairSideGeom.applyMatrix4(new THREE.Matrix4().makeTranslation(-6, 0, 0));
-  var hairSideR = new THREE.Mesh(hairSideGeom, hairMat);
-  var hairSideL = hairSideR.clone();
-  hairSideR.position.set(8, -2, 6);
-  hairSideL.position.set(8, -2, -6);
-  hairs.add(hairSideR);
-  hairs.add(hairSideL);
-
-  // create the hairs at the back of the head
-  var hairBackGeom = new THREE.BoxGeometry(2, 8, 10);
-  var hairBack = new THREE.Mesh(hairBackGeom, hairMat);
-  hairBack.position.set(-1, -4, 0);
-  hairs.add(hairBack);
-  hairs.position.set(-5, 5, 0);
-
-  this.mesh.add(hairs);
-
-  var glassGeom = new THREE.BoxGeometry(5, 5, 5);
-  var glassMat = new THREE.MeshLambertMaterial({ color: Colors.brown });
-  var glassR = new THREE.Mesh(glassGeom, glassMat);
-  glassR.position.set(6, 0, 3);
-  var glassL = glassR.clone();
-  glassL.position.z = -glassR.position.z;
-
-  var glassAGeom = new THREE.BoxGeometry(11, 1, 11);
-  var glassA = new THREE.Mesh(glassAGeom, glassMat);
-  this.mesh.add(glassR);
-  this.mesh.add(glassL);
-  this.mesh.add(glassA);
-
-  var earGeom = new THREE.BoxGeometry(2, 3, 2);
-  var earL = new THREE.Mesh(earGeom, faceMat);
-  earL.position.set(0, 0, -6);
-  var earR = earL.clone();
-  earR.position.set(0, 0, 6);
-  this.mesh.add(earL);
-  this.mesh.add(earR);
-};
-
-Pilot.prototype.updateHairs = function () {
-  // get the hair
-  var hairs = this.hairsTop.children;
-
-  // update them according to the angle angleHairs
-  var l = hairs.length;
-  for (var i = 0; i < l; i++) {
-    var h = hairs[i];
-    // each hair element will scale on cyclical basis between 75% and 100% of its original size
-    h.scale.y = 0.75 + Math.cos(this.angleHairs + i / 3) * 0.25;
+  enemiesHolder = new EnemiesHolder();
+  //enemiesHolder.mesh.position.y = -game.seaRadius;
+  scene.add(enemiesHolder.mesh);
+}
+function createParticles() {
+  for (var i = 0; i < 10; i++) {
+    var particle = new Particle();
+    particlesPool.push(particle);
   }
-  // increment the angle for the next frame
-  this.angleHairs += 0.16;
-};
+  particlesHolder = new ParticlesHolder();
+  //ennemiesHolder.mesh.position.y = -game.seaRadius;
+  scene.add(particlesHolder.mesh);
+}
+function loop() {
+  newTime = new Date().getTime();
+  deltaTime = newTime - oldTime;
+  oldTime = newTime;
 
-function updatePlane() {
-  // let's move the airplane between -100 and 100 on the horizontal axis,
-  // and between 25 and 175 on the vertical axis,
-  // depending on the mouse position which ranges between -1 and 1 on both axes;
-  // to achieve that we use a normalize function (see below)
+  if (game.status == "playing") {
+    // Add energy coins every 100m;
+    if (
+      Math.floor(game.distance) % game.distanceForCoinsSpawn == 0 &&
+      Math.floor(game.distance) > game.coinLastSpawn
+    ) {
+      game.coinLastSpawn = Math.floor(game.distance);
+      coinsHolder.spawnCoins();
+    }
 
-  var targetX = normalize(mousePos.x, -1, 1, -100, 100);
-  var targetY = normalize(mousePos.y, -1, 1, 25, 175);
+    if (
+      Math.floor(game.distance) % game.distanceForSpeedUpdate == 0 &&
+      Math.floor(game.distance) > game.speedLastUpdate
+    ) {
+      game.speedLastUpdate = Math.floor(game.distance);
+      game.targetBaseSpeed += game.incrementSpeedByTime * deltaTime;
+    }
 
-  // update the airplane's position
-  if (airplaneGroup) {
-    airplaneGroup.position.x = targetX;
-    airplaneGroup.position.y = targetY;
-    helix.rotation.x += 0.3;
-    pilot.updateHairs();
+    if (
+      Math.floor(game.distance) % game.distanceForEnemiesSpawn == 0 &&
+      Math.floor(game.distance) > game.enemyLastSpawn
+    ) {
+      game.enemyLastSpawn = Math.floor(game.distance);
+      enemiesHolder.spawnEnemies();
+    }
+
+    if (
+      Math.floor(game.distance) % game.distanceForLevelUpdate == 0 &&
+      Math.floor(game.distance) > game.levelLastUpdate
+    ) {
+      game.levelLastUpdate = Math.floor(game.distance);
+      game.level++;
+      fieldLevel.innerHTML = Math.floor(game.level);
+
+      game.targetBaseSpeed =
+        game.initSpeed + game.incrementSpeedByLevel * game.level;
+    }
+    updatePlane();
+    updateDistance();
+    updateEnergy();
+    game.baseSpeed +=
+      (game.targetBaseSpeed - game.baseSpeed) * deltaTime * 0.02;
+    game.speed = game.baseSpeed * game.planeSpeed;
+  } else if (game.status == "gameover") {
+    game.speed *= 0.99;
+    airplaneGroup.rotation.z +=
+      (-Math.PI / 2 - airplaneGroup.rotation.z) * 0.0002 * deltaTime;
+    airplaneGroup.rotation.x += 0.0003 * deltaTime;
+    game.planeFallSpeed *= 1.05;
+    airplaneGroup.position.y -= game.planeFallSpeed * deltaTime;
+    if (airplaneGroup.position.y < -200) {
+      showReplay();
+      game.status = "waitingReplay";
+    }
+  } else if (game.status == "waitingReplay") {
+  }
+
+  // airplane.propeller.rotation.x +=.2 + game.planeSpeed * deltaTime*.005;
+  if (helix) helix.rotation.x += 0.3;
+  sea.mesh.rotation.z += game.speed * deltaTime; //*game.seaRotationSpeed;
+  if (sea.mesh.rotation.z > 2 * Math.PI) sea.mesh.rotation.z -= 2 * Math.PI;
+
+  ambientLight.intensity += (0.5 - ambientLight.intensity) * deltaTime * 0.005;
+
+  coinsHolder.rotateCoins();
+  enemiesHolder.rotateEnemies();
+
+  sky.moveClouds();
+  sea.moveWaves();
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+function updateDistance() {
+  game.distance += game.speed * deltaTime * game.ratioSpeedDistance;
+  fieldDistance.innerHTML = Math.floor(game.distance);
+  var d =
+    502 *
+    (1 -
+      (game.distance % game.distanceForLevelUpdate) /
+        game.distanceForLevelUpdate);
+  levelCircle.setAttribute("stroke-dashoffset", d);
+}
+
+function updateEnergy() {
+  game.energy -= game.speed * deltaTime * game.ratioSpeedEnergy;
+  game.energy = Math.max(0, game.energy);
+  energyBar.style.right = 100 - game.energy + "%";
+  energyBar.style.backgroundColor = game.energy < 50 ? "#f25346" : "#68c3c0";
+
+  if (game.energy < 30) {
+    energyBar.style.animationName = "blinking";
+  } else {
+    energyBar.style.animationName = "none";
+  }
+
+  if (game.energy < 1) {
+    game.status = "gameover";
   }
 }
 
+function addEnergy() {
+  game.energy += game.coinValue;
+  game.energy = Math.min(game.energy, 100);
+}
+
+function removeEnergy() {
+  game.energy -= game.enemyValue;
+  game.energy = Math.max(0, game.energy);
+}
+
+function updatePlane() {
+  if (!airplaneGroup) return;
+  game.planeSpeed = normalize(
+    mousePos.x,
+    -0.5,
+    0.5,
+    game.planeMinSpeed,
+    game.planeMaxSpeed
+  );
+  var targetX = normalize(
+    mousePos.x,
+    -1,
+    1,
+    -game.planeAmpWidth * 0.7,
+    game.planeAmpWidth
+  );
+  var targetY = normalize(
+    mousePos.y,
+    -0.75,
+    0.75,
+    game.planeDefaultHeight - game.planeAmpHeight,
+    game.planeDefaultHeight + game.planeAmpHeight
+  );
+
+  game.planeCollisionDisplacementX += game.planeCollisionSpeedX;
+  targetX += game.planeCollisionDisplacementX;
+  game.planeCollisionDisplacementY += game.planeCollisionSpeedY;
+  targetY += game.planeCollisionDisplacementY;
+  airplaneGroup.position.x +=
+    (targetX - airplaneGroup.position.x) * deltaTime * game.planeMoveSensivity;
+  airplaneGroup.position.y +=
+    (targetY - airplaneGroup.position.y) * deltaTime * game.planeMoveSensivity;
+
+  airplaneGroup.rotation.z =
+    (targetY - airplaneGroup.position.y) * deltaTime * game.planeRotXSensivity;
+  airplaneGroup.rotation.x =
+    (airplaneGroup.position.y - targetY) * deltaTime * game.planeRotZSensivity;
+  var targetCameraZ = normalize(
+    game.planeSpeed,
+    game.planeMinSpeed,
+    game.planeMaxSpeed,
+    game.cameraNearPos,
+    game.cameraFarPos
+  );
+  camera.fov = normalize(mousePos.x, -1, 1, 40, 80);
+  camera.updateProjectionMatrix();
+  camera.position.y +=
+    (airplaneGroup.position.y - camera.position.y) *
+    deltaTime *
+    game.cameraSensivity;
+
+  game.planeCollisionSpeedX +=
+    (0 - game.planeCollisionSpeedX) * deltaTime * 0.03;
+  game.planeCollisionDisplacementX +=
+    (0 - game.planeCollisionDisplacementX) * deltaTime * 0.01;
+  game.planeCollisionSpeedY +=
+    (0 - game.planeCollisionSpeedY) * deltaTime * 0.03;
+  game.planeCollisionDisplacementY +=
+    (0 - game.planeCollisionDisplacementY) * deltaTime * 0.01;
+
+  pilot.updateHairs();
+}
+function showReplay() {
+  replayMessage.style.display = "block";
+}
+
+function hideReplay() {
+  replayMessage.style.display = "none";
+}
 function normalize(v, vmin, vmax, tmin, tmax) {
   var nv = Math.max(Math.min(v, vmax), vmin);
   var dv = vmax - vmin;
@@ -666,21 +1123,16 @@ function normalize(v, vmin, vmax, tmin, tmax) {
   return tv;
 }
 
-function loop() {
-  sea.mesh.rotation.z += 0.005;
-  sky.mesh.rotation.z += 0.01;
-  updatePlane();
+var fieldDistance, energyBar, replayMessage, fieldLevel, levelCircle;
 
-  sky.moveClouds();
-  sea.moveWaves();
+function init(event) {
+  // UI
 
-  renderer.render(scene, camera);
-  requestAnimationFrame(loop);
-}
-
-window.addEventListener("load", init, false);
-
-function init() {
+  fieldDistance = document.getElementById("distValue");
+  energyBar = document.getElementById("energyBar");
+  replayMessage = document.getElementById("replayMessage");
+  fieldLevel = document.getElementById("levelValue");
+  levelCircle = document.getElementById("levelCircleStroke");
   // set up the scene, the camera and the renderer
   resetGame();
   createScene();
@@ -689,10 +1141,17 @@ function init() {
   createPlane();
   createSea();
   createSky();
+  createCoins();
+  createEnemies();
+  createParticles();
   // start a loop that will update the objects' positions
   // and render the scene on each frame
 
   document.addEventListener("mousemove", handleMouseMove, false);
+  document.addEventListener("touchmove", handleTouchMove, false);
+  document.addEventListener("mouseup", handleMouseUp, false);
+  document.addEventListener("touchend", handleTouchEnd, false);
 
   loop();
 }
+window.addEventListener("load", init, false);
